@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		
+		<link rel="stylesheet" type="text/css" href="style.css">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+
+		<script src="jquery-2.1.0.js"></script>
+		<script>
+			width = 20;
+			height = 20;
+			inGame = false;
+
+			grassImage = "icons/grass.png";
+			boxImage = "icons/pokeball.png";
+			wallImage = "icons/tree.png";
+			monsterImage = "icons/charizard.gif";
+
+			//exit the world
+			function exitWorld(){
+				inGame = false;
+				$('#game').hide();
+				$('#rooms').show();
+				message={wType:'exit'}
+				message = JSON.stringify(message);
+				socket.send(message);
+			}	
+
+			//load existing world
+			function sendExisting(id){
+				document.getElementById('errors').innerHTML = '';
+				worldID = id;
+				message = {wType:'load', wID:id}
+				message = JSON.stringify(message);
+				socket.send(message);
+			}
+
+			//create new world
+			function sendNew(){
+				if($('#newWorld').val() == ''){
+						error = 'Please specify game room name';
+						document.getElementById('errors').innerHTML = error;
+					return
+				}
+				document.getElementById('errors').innerHTML = '';
+				message = {wType:'new', wName:$('#newWorld').val()}
+				message = JSON.stringify(message);
+				socket.send(message);
+				$('#newWorld').val("");
+			}
+
+			//move the player
+			function move(direction){
+				message = {wType:'step', direction:direction};
+				message = JSON.stringify(message);
+				socket.send(message);
+			}
+
+			//populate all players
+			function populatePlayers (players) {
+				for (var i = 0; i < players.length; i++) {
+					id = players[i][0] + "," + players[i][1]
+					pID = 'p' + String(players[i][2]);
+					document.getElementById(id).src = document.getElementById(pID).src;
+				}
+			}
+
+			//populate all boxes
+			function populateBoxes (boxes) {
+				for (var i = 0; i < boxes.length; i++) {
+					id = boxes[i][0] + "," + boxes[i][1]
+					document.getElementById(id).src = boxImage;
+				}
+			}		
+
+			//populate all walls
+			function populateWalls (walls) {
+				for (var i = 0; i < walls.length; i++) {
+					id = walls[i][0] + "," + walls[i][1]
+					document.getElementById(id).src = wallImage;
+				}
+			}	
+
+			//populate all monsters
+			function populateMonsters(monsters){
+				for (var i = 0; i < monsters.length; i++) {
+					id = monsters[i][0] + "," + monsters[i][1]
+					document.getElementById(id).src = monsterImage;
+				}
+			}
+
+			//update the images on move
+			function update (oldPos, newPos, type, pID) {
+				oldID = oldPos[0] + "," + oldPos[1];
+				newID = newPos[0] + "," + newPos[1];
+				document.getElementById(oldID).src = grassImage;
+				switch(type){
+					case 'Box':
+						document.getElementById(newID).src = boxImage;
+						break;
+					case 'Monster':
+						document.getElementById(newID).src = monsterImage;
+						break;
+					case 'Player':
+						playerID = 'p' + String(pID)
+						document.getElementById(newID).src = document.getElementById(playerID).src;
+						break;
+				}
+			}
+
+			//Handles the specific direction to move
+			function deviceOrientationHandler(gamma, beta){
+				if(inGame){
+					if(beta > 10 && gamma < -10){
+						// right down
+						move("99");
+
+					}
+					else if(beta > 10 && gamma > 10){
+						// right up
+						move("101");
+					}
+
+					else if(beta < -10 && gamma < -10){
+						// down left
+						move("122");
+					}
+
+					else if(beta < -10 && gamma > 10){
+						// up left
+						move("113");
+					}
+
+					else if(beta > 10){
+						// right
+						move("100");
+					}
+
+					else if(beta < -10){
+						// left
+						move("97");
+					}
+
+					else if(gamma < -10){
+						// down
+						move("120");
+					}
+
+					else if(gamma > 10){
+						// up
+						move("119");
+					}
+				}
+			}
+
+			$(function(){
+
+				//if the user shakes the device, they will exit the world
+				if (typeof window.DeviceMotionEvent != 'undefined') {
+			
+					sensitivity = 20;
+					var x1 = 0, y1 = 0, z1 = 0, x2 = 0, y2 = 0, z2 = 0;
+
+					window.addEventListener('devicemotion', function (e) {
+						x1 = e.accelerationIncludingGravity.x;
+					    y1 = e.accelerationIncludingGravity.y;
+					    z1 = e.accelerationIncludingGravity.z;
+					}, false);
+
+					setInterval(function () {
+					    var changePosition = Math.abs(x1-x2+y1-y2+z1-z2);
+
+					    if (changePosition > sensitivity) {	
+					        exitWorld();
+					    }
+
+					    x2 = x1;
+					    y2 = y1;
+					    z2 = z1;
+					}, 150);
+				}
+
+				/* Note: This feature is only meant for horizontal display with the home button to the right of the user*/
+				//The user will move in the direction of the tilt.
+				if (window.DeviceOrientationEvent) {
+
+					// Listen for the deviceorientation event and handle the raw data
+					window.addEventListener('deviceorientation', function(eventData) {
+					// gamma is the left-to-right tilt in degrees, where right is positive
+					tiltLR = eventData.gamma;
+
+					// beta is the front-to-back tilt in degrees, where front is positive
+					tiltFB = eventData.beta;
+
+
+					// call our orientation event handler
+					deviceOrientationHandler(tiltLR, tiltFB);
+					}, false);
+				}
+
+				//show the main menu on refresh
+				$(window).bind("load", function() {
+					$('#rooms').show();
+					$('#game').hide();
+				});
+
+				//create and maintain socket
+				socket = new WebSocket("ws://localhost:8000");
+				socket.onopen = function (event) {
+					$('#rooms').show();
+					$('#game').hide();
+					$('#sendButton').removeAttr('disabled');
+					console.log("connected");
+				};
+				socket.onclose = function (event) {
+					alert("closed code:" + event.code + " reason:" +event.reason + " wasClean:"+event.wasClean);
+				};
+
+				socket.onmessage = function (event) {
+					json = JSON.parse(event.data);
+
+					//Game Engine
+					switch(json.wType){
+
+					case 'new':
+						console.log("on message new")
+						button = '<input type="button" class="btn" id="'+ json.wID +'"value ="' + json.wName + '" onclick="sendExisting(id);" />'
+						$('#messages').append("<br/></br>"+button);
+						$('#rooms').show();
+						$('#game').hide();
+						break;
+					
+					case 'load':
+						console.log("on message load")
+						inGame = true;
+						$('#rooms').hide();
+						table='<table>';
+
+						for(i = 0; i < width; i++){
+							table+='<tr>';
+							for(j = 0; j < height; j++){
+								table+='<td> <img src=icons/grass.png id="'+ i + ',' + j +'" height = 24, width = 24/> </td>';
+							}
+							table+='</tr>';
+						}
+						table+='</table>';
+						document.getElementById('stage').innerHTML = table;
+						playerID = json.pID;
+
+						populatePlayers(json.players);
+						populateBoxes(json.box);
+						populateWalls(json.walls);
+						populateMonsters(json.monster);
+						$('#game').show();
+						break;
+					
+					case 'update':
+						console.log("on message update")
+						$('#rooms').hide();
+						$('#game').show();
+						update(json.oldPos, json.newPos, json.pType, json.pID);
+						break;
+
+					case 'remove':
+						id = json.pos[0] + ',' + json.pos[1];
+						document.getElementById(id).src = grassImage;
+						break;
+
+					case 'exit':
+						exitWorld();
+						alert("You died");
+						location.reload();
+						break;
+
+					case 'win':
+						$('#messages').val("");
+						alert("You win");
+						$('#game').hide();
+						$('#rooms').show();
+						exitWorld();
+						location.reload();
+						break;
+
+					case 'error':
+						document.getElementById('errors').innerHTML = json.err;
+						break;
+				}
+			}
+		});
+		</script>
+	</head>
+	<body>
+		<center>
+
+			<br><br>
+			<img src="icons/pokemon.png" height= "80" width = "1000" id="pokemon"/>
+			<br><br><br>
+			<div id="rooms">
+				
+				<form> 
+					<input type="text" id="newWorld" class = "inputForm" placeholder="Enter game room name"/>&nbsp;&nbsp;<input type="button" class="btn" id="sendButton" value="Create" disabled='disabled' onclick="sendNew();" />
+				</form>
+				<br>
+				<div id="errors"> </div>
+				<br><br>
+				<h1> Game Rooms </h1>
+				<div id="messages" ></div>
+			</div>
+
+			<div id="game">
+				<table>
+					<td>
+						<div id="stage"> </div> 
+						<center>
+							<table class="legend" cellpadding="7" align="center">
+								<h2>Legend</h2>
+								<tr>
+									<td> <img src="icons/eevee.gif" id="p0" height="35" width="35" /> </td>
+									<td> <img src="icons/espeon.gif" id="p1" height="35" width="35" /> </td>
+									<td> <img src="icons/flareon.gif" id="p2" height="35" width="35" /> </td>
+									<td> <img src="icons/glaceon.gif" id="p3" height="35" width="35" /> </td>
+									<td> <img src="icons/jolteon.gif" id="p4" height="35" width="35" /> </td>
+									<td> <img src="icons/leafeon.gif" id="p5" height="35" width="35" /> </td>
+									<td> <img src="icons/umbreon.gif" id="p6" height="35" width="35" /> </td>
+									<td> <img src="icons/sylveon.gif" id="p7" height="35" width="35" /> </td>
+									<td> <img src="icons/vaporeon.gif" id="p8" height="35" width="35" /> </td>
+								</tr>
+								<tr>
+									<td> Eevee <br> Player 1 </td>
+									<td> Espeon <br> Player 2 </td>
+									<td> Flareon <br> Player 3 </td>
+									<td> Glaceon <br> Player 4 </td>
+									<td> Jolteon <br> Player 5 </td>
+									<td> Leafeon <br> Player 6 </td>
+									<td> Umbreon <br> Player 7 </td>
+									<td> Sylveon <br> Player 8 </td>
+									<td> Vaporeon <br> Player 9 </td>
+								</tr>
+							</table>
+							<br><br>								
+						</center>
+					</td> 
+					<td>  
+						<center>	
+							<input type="button" class="btn" id="exitWorld" value="Exit World" onclick="exitWorld();" />
+							<br><br>
+							<h2>Controls</h2> 
+							<table class="controls" cellpadding="3">
+								<tr>
+									<td><img src="icons/north_west.svg" id="113" onclick="move(id)"  height="100" width="50"  /></td>
+									<td><img src="icons/north.svg" id="119" onclick="move(id)" height="60" width="100" /></td>
+									<td><img src="icons/north_east.svg" id="101" onclick="move(id)" height="100" width="50"/></td>
+								</tr>
+								<tr>
+									<td><img src="icons/west.svg" id="97" onclick="move(id)" height="100" width="50"/></td>
+									<td>&nbsp;</td>
+									<td><img src="icons/east.svg" id="100" onclick="move(id)" height="100" width="50"/></td>
+								</tr>
+								<tr>
+									<td><img src="icons/south_west.svg" id="122" onclick="move(id)" height="100" width="50" /></td>
+									<td><img src="icons/south.svg" id="120" onclick="move(id)" height="60" width="100" /></td>
+									<td><img src="icons/south_east.svg" id="99" onclick="move(id)" height="100" width="50"/></td>
+								</tr>
+							</table>
+						</center>
+					</td>
+						<tr>
+						</tr>
+				</table>
+			</div>
+		<center>
+	</body>
+</html>

@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+
+		<link rel="stylesheet" type="text/css" href="style.css">
+
+		<script src="jquery-2.1.0.js"></script>
+		<!-- <script language="javascript" src="world.js" > </script> -->
+		<script>
+			width = 20;
+			height = 20;
+			//worldID = null; //0
+			//playerID = null; //0
+
+			function sendMessage(){
+				msg = {wType: 'message', chat: $('#chatMessage').val()}
+				msg = JSON.stringify(msg)
+				socket.send(msg)
+				$('#chatMessage').val("")
+			}
+
+			function sendExisting(id){
+				worldID = id;
+				message = {wType:'load', wID:id}
+				message = JSON.stringify(message);
+				socket.send(message);
+
+			}
+
+			function sendNew(){
+				message = {wType:'new', wName:$('#newWorld').val()}
+				console.log(message)
+				message = JSON.stringify(message);
+				console.log(message)
+				socket.send(message);
+				$('#newWorld').val("");
+
+			}
+
+			function move(direction){
+				message = {wType:'step', direction:direction};
+				message = JSON.stringify(message);
+				socket.send(message);
+			}
+
+			// function keypress(id){
+			// 	//Submits new game room on Enter key
+			// 	if(id.charCode == 13){
+			// 		alert("pressed")
+			// 		$("#newWorld").submit(function() { return false; });
+			// 		if ($('#newWorld').val() != "") {
+			// 			sendNew();
+			// 		}
+			// 	}
+			// }
+
+			function populatePlayers (players) {
+				for (var i = 0; i < players.length; i++) {
+					id = players[i][0] + "," + players[i][1]
+					//document.getElementById(id).src = playerImage;
+					pID = 'p' + String(players[i][2]);
+					document.getElementById(id).src = document.getElementById(pID).src;
+					console.log("adding player " + players[i][2]);
+				};
+			}
+
+			function populateBoxes (boxes) {
+				for (var i = 0; i < boxes.length; i++) {
+					id = boxes[i][0] + "," + boxes[i][1]
+					document.getElementById(id).src = boxImage;
+				};
+			}		
+
+			function populateWalls (walls) {
+				for (var i = 0; i < walls.length; i++) {
+					id = walls[i][0] + "," + walls[i][1]
+					document.getElementById(id).src = wallImage;
+				};
+			}	
+
+			function populateMonsters(monsters){
+				for (var i = 0; i < monsters.length; i++) {
+					id = monsters[i][0] + "," + monsters[i][1]
+					document.getElementById(id).src = monsterImage;
+				};
+			}
+
+			function update (oldPos, newPos, type, pID) {
+				oldID = oldPos[0] + "," + oldPos[1];
+				newID = newPos[0] + "," + newPos[1];
+				document.getElementById(oldID).src = grassImage;
+				switch(type){
+					case 'Box':
+						document.getElementById(newID).src = boxImage;
+						break;
+					case 'Monster':
+						document.getElementById(newID).src = monsterImage;
+						break;
+					case 'Player':
+						blah = 'p' + String(pID)
+						document.getElementById(newID).src = document.getElementById(blah).src;
+						break;
+				}
+
+			}
+
+			function exitWorld(){
+				$('#game').hide();
+				$('#rooms').show();
+				message={wType:'exit'}
+				message = JSON.stringify(message);
+				console.log(message)
+				socket.send(message);
+
+			
+				//alert("You died!");
+				//location.reload();
+
+			}
+
+			$(function(){
+				//window.onkeypress = keypress;
+				$(window).bind("load", function() {
+					$('#rooms').show();
+					$('#game').hide();
+				});
+				 // $(window).bind("beforeunload", function() {
+				 // 	exitWorld();
+				 // });
+
+				 // $('.no-zoom').bind('touchend', function(e) {
+					//   e.preventDefault();
+					//   // Add your code here.
+					// })
+
+				grassImage = document.getElementById('blankImage').src;
+				boxImage = document.getElementById('boxImage').src;
+				wallImage = document.getElementById('wallImage').src;
+				monsterImage = document.getElementById('explodingImage').src;
+				//playerImage = document.getElementById('eeveeImage').src;
+
+				
+
+				socket = new WebSocket("ws://cslinux.utm.utoronto.ca:10350");
+				socket.onopen = function (event) {
+					$('#rooms').show();
+					$('#game').hide();
+					$('#sendButton').removeAttr('disabled');
+					$('#chatButton').removeAttr('disabled');
+					console.log("connected");
+				};
+				socket.onclose = function (event) {
+					alert("closed code:" + event.code + " reason:" +event.reason + " wasClean:"+event.wasClean);
+				};
+				socket.onmessage = function (event) {
+					json = JSON.parse(event.data);
+					if(json.wType=='new'){
+						console.log("on message new")
+						button = '<input type="button" id="'+ json.wID +'"value ="' + json.wName + '" onclick="sendExisting(id);" />'
+						$('#messages').append("<br/>"+button);
+						$('#rooms').show();
+						$('#game').hide();
+					}
+					else if(json.wType=='load'){
+						console.log("on message load")
+						$('#rooms').hide();
+
+						legend = '';
+						var table='<table>';
+
+						for(i = 0; i < width; i++){
+							table+='<tr>';
+							for(j = 0; j < height; j++){
+								table+='<td> <img src=icons/grass.png id="'+ i + ',' + j +'" height = 24, width = 24/> </td>';
+							}
+							table+='</tr>';
+						}
+						table+='</table>';
+						document.getElementById('stage').innerHTML = table;
+						playerID = json.pID;
+
+						populatePlayers(json.players);
+						populateBoxes(json.box);
+						populateWalls(json.walls);
+						populateMonsters(json.monsters);
+						$('#game').show();
+					}
+
+					else if(json.wType == 'update'){
+						console.log("on message update")
+						$('#rooms').hide();
+						$('#game').show();
+						update(json.oldPos, json.newPos, json.pType, json.pID);
+					}
+
+					else if (json.wType == 'remove') {
+						id = json.pos[0] + ',' + json.pos[1];
+						document.getElementById(id).src = grassImage;
+					}
+
+					else if (json.wType == 'exit'){
+						//alert("You died!");
+						exitWorld();
+						location.reload();
+						alert("You died");
+					}
+
+					else if (json.wType == 'win'){
+						$('#messages').val("");
+						alert("You win");
+						$('#game').hide();
+						$('#rooms').show();
+						
+
+						exitWorld();
+						location.reload();
+
+					}
+
+					else if (json.wType == 'error'){
+						alert(json.err);
+					}
+
+					else if (json.wType == 'chat') {
+						$('#chatMessages').append("<br/>"+json.chatVal);
+					};
+
+				}
+			});
+		</script>
+	</head>
+	<body>
+		<center>
+			<br><br>
+			<img src="icons/pokemon.png" height= "80" width = "1000" id="pokemon"/>
+			<br><br><br>
+			<div id="rooms">
+				<form> 
+					<input type="text" id="newWorld" /><input type="button" id="sendButton" value="New Game Room" disabled='disabled' onclick="sendNew();" />
+				</form>
+				<br><br>
+				<h1> Game Rooms </h1>
+				<div id="messages" ></div>
+			</div>
+
+			<div id="game">
+				<table>
+					<tr>
+						<td> <div id="stage"> </div></td> 
+						<td>
+							<center>
+
+								<input type="button" id="exitWorld" value="Exit World" onclick="exitWorld();" />
+
+								<h2>Legend</h2>
+								<table class="legend" cellpadding="7" align="center">
+									<tr>
+										<td> <img src="icons/eevee.gif" id="p0" height="35" width="35" /> </td>
+										<td> <img src="icons/espeon.gif" id="p1" height="35" width="35" /> </td>
+										<td> <img src="icons/flareon.gif" id="p2" height="35" width="35" /> </td>
+									</tr>
+									<tr>
+										<td> Eevee </td>
+										<td> Espeon </td>
+										<td> Flareon </td>
+									</tr>
+									<tr>
+										<td> <img src="icons/glaceon.gif" id="p3" height="35" width="35" /> </td>
+										<td> <img src="icons/jolteon.gif" id="p4" height="35" width="35" /> </td>
+										<td> <img src="icons/leafeon.gif" id="p5" height="35" width="35" /> </td>
+									</tr>
+									<tr>
+										<td> Glaceon </td>
+										<td> Jolteon </td>
+										<td> Leafeon </td>
+									</tr>
+									<tr>
+										<td> <img src="icons/umbreon.gif" id="p6" height="35" width="35" /> </td>
+										<td> <img src="icons/sylveon.gif" id="p7" height="35" width="35" /> </td>
+										<td> <img src="icons/vaporeon.gif" id="p8" height="35" width="35" /> </td>
+									</tr>
+									<tr>
+
+										<td> Umbreon </td>
+										<td> Sylveon </td>
+										<td> Vaporeon </td>
+									</tr>
+									<tr>
+										<td> <img src="icons/grass.png" id="blankImage" /> </td>
+										<td> <img src="icons/pokeball.png" id="boxImage" /> </td>
+										<td> <img src="icons/tree.png" id="wallImage" /> </td>
+										<td> <img src="icons/fire.gif" id="fireImage" /> </td>
+									</tr>
+									<tr>
+										<td> Grass </td>
+										<td> Box </td>
+										<td> Tree </td>
+										<td> Fire </td>
+									</tr>
+									<tr>
+										<td> <img src="icons/charizard.gif" id="explodingImage" height="35" width="35"/> </td>
+
+									</tr>
+
+									<tr>
+										<td> Monster </td>
+									</tr>
+
+								</table>
+								<br><br>
+								
+								<h2>Controls</h2> 
+								
+								<table class="controls" cellpadding="3">
+
+									<tr>
+										<td><img src="icons/north_west.svg" id="113" onclick="move(id)" /></td>
+										<td><img src="icons/north.svg" id="119" onclick="move(id)" /></td>
+										<td><img src="icons/north_east.svg" id="101" onclick="move(id)" /></td>
+									</tr>
+									<tr>
+										<td><img src="icons/west.svg" id="97" onclick="move(id)" /></td>
+										<td>&nbsp;</td>
+										<td><img src="icons/east.svg" id="100" onclick="move(id)" /></td>
+									</tr>
+									<tr>
+										<td><img src="icons/south_west.svg" id="122" onclick="move(id)" /></td>
+										<td><img src="icons/south.svg" id="120" onclick="move(id)" /></td>
+										<td><img src="icons/south_east.svg" id="99" onclick="move(id)" /></td>
+									</tr>
+								</table>
+							</center>
+						</td>
+					</tr>
+				</table>
+			</div>
+			<br><br><br>
+			<div id="chat">
+				<h3>Chat Console</h3>
+				<form> 
+					<input type="text" id="chatMessage" /><input type="button" id="chatButton" value="send" disabled='disabled' onclick="sendMessage();" />
+				</form>
+				<div id="chatMessages" style="border:1px white; width:100%; overflow: auto;" ></div>
+			</div>
+		<center>
+	</body>
+</html>
